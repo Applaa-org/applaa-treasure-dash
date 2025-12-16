@@ -1,0 +1,66 @@
+[gd_scene load_steps=3 format=3 uid="uid://victoryscreen"]
+[ext_resource type="Script" path="res://scripts/VictoryScreen.gd" id=1]
+
+[node name="VictoryScreen" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+margin_right = 0.0
+margin_bottom = 0.0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
+anchor_left = 0.25
+anchor_top = 0.15
+anchor_right = 0.75
+anchor_bottom = 0.85
+margin_left = 0.0
+margin_top = 0.0
+margin_right = 0.0
+margin_bottom = 0.0
+custom_constants/separation = 10.0
+
+[node name="TitleLabel" type="Label" parent="VBoxContainer"]
+text = "Victory!"
+theme_font_size = 48
+align = 1
+valign = 1
+
+[node name="PlayerNameLabel" type="Label" parent="VBoxContainer"]
+text = "Player: Guest"
+theme_font_size = 20
+align = 1
+
+[node name="ScoreLabel" type="Label" parent="VBoxContainer"]
+text = "Final Score: 0"
+theme_font_size = 20
+align = 1
+
+[node name="CoinsLabel" type="Label" parent="VBoxContainer"]
+text = "Coins Collected: 0"
+theme_font_size = 20
+align = 1
+
+[node name="LeaderboardLabel" type="Label" parent="VBoxContainer"]
+text = "Leaderboard"
+theme_font_size = 24
+align = 1
+
+[node name="Leaderboard" type="ItemList" parent="VBoxContainer"]
+size_flags_vertical = 3
+rect_min_size = Vector2(0, 150)
+
+[node name="RestartButton" type="Button" parent="VBoxContainer"]
+text = "Restart"
+
+[node name="MainMenuButton" type="Button" parent="VBoxContainer"]
+text = "Main Menu"
+
+[node name="CloseButton" type="Button" parent="VBoxContainer"]
+text = "Close"
+
+[connection signal="pressed" from="VBoxContainer/RestartButton" to="." method="_on_restart_pressed"]
+[connection signal="pressed" from="VBoxContainer/MainMenuButton" to="." method="_on_main_menu_pressed"]
+[connection signal="pressed" from="VBoxContainer/CloseButton" to="." method="_on_close_pressed"]
+
+[connection signal="ready" from="." to="." method="_ready"]
+
+script = ExtResource(1)
