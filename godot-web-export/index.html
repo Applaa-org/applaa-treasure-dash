@@ -50,7 +50,6 @@
   </div>
 
   <script>
-  // Simplified Treasure Dash preview
   (function(){
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
@@ -69,7 +68,6 @@
     document.getElementById('jump').addEventListener('touchstart',e=>{e.preventDefault(); mobile.jump=true; setTimeout(()=>mobile.jump=false,150)});
     document.getElementById('use').addEventListener('touchstart',e=>{e.preventDefault(); mobile.use=true; setTimeout(()=>mobile.use=false,150)});
 
-    // Game state
     let running = false;
     let paused = false;
     let score = 0;
@@ -79,14 +77,12 @@
     const groundY = canvas.height - 80;
     let lastTime = 0;
 
-    // Player
     const player = {
       x: 120, y: groundY - 48, w: 40, h: 48,
       vx: 0, vy: 0, speed: 260, jumpSpeed: -520, onGround: true,
       color: '#ffdd57', shield: false
     };
 
-    // Simple arrays for collectibles and hazards
     let collectibles = [];
     let hazards = [];
     let enemies = [];
@@ -94,30 +90,41 @@
     let spawnTimer = 0;
     let difficulty = 1;
 
-    // Leaderboard local cache (for preview); real storage via postMessage
     let leaderboard = [];
+    let lastPlayerName = "Player";
 
-    // Input
     const keys = {};
     window.addEventListener('keydown', e => { keys[e.code]=true; if(e.code==='Escape') togglePause(); });
     window.addEventListener('keyup', e => { keys[e.code]=false; });
 
-    // Buttons
     btnStart.addEventListener('click', startGame);
     btnPause.addEventListener('click', togglePause);
     btnSave.addEventListener('click', () => { promptAndSaveScore(); });
-    btnQuit.addEventListener('click', () => { // post a close message for container and then window.close()
+    btnQuit.addEventListener('click', () => {
       try { window.parent.postMessage({ type: 'applaa-game-quit' }, '*'); } catch(e){}
-      // can't close from browser in most contexts; give feedback
       alert('Close requested (in desktop game this will quit).');
     });
 
     function startGame(){
-      resetGame();
-      running = true;
-      paused = false;
-      lastTime = performance.now();
-      requestAnimationFrame(loop);
+      promptPlayerName().then(name => {
+        if(name && name.trim() !== "") {
+          lastPlayerName = name.trim();
+        } else {
+          lastPlayerName = "Player";
+        }
+        resetGame();
+        running = true;
+        paused = false;
+        lastTime = performance.now();
+        requestAnimationFrame(loop);
+      });
+    }
+
+    function promptPlayerName(){
+      return new Promise(resolve => {
+        const name = prompt("Enter your player name:", lastPlayerName);
+        resolve(name);
+      });
     }
 
     function resetGame(){
@@ -136,17 +143,13 @@
 
     function updateHUD(){ scoreLabel.textContent = `Score: ${score}  Coins: ${coins}  Lives: ${lives}`; }
 
-    // Spawn logic: coins, hazards, enemies
     function spawn(dt){
       spawnTimer += dt;
-      // spawn frequency increases with difficulty
       const spawnPeriod = Math.max(0.6, 1.8 - difficulty * 0.12);
       if(spawnTimer > spawnPeriod){
         spawnTimer = 0;
-        // randomize spawn type
         const r = Math.random();
         if(r < 0.55){
-          // coin
           collectibles.push({ x: canvas.width + 80 + Math.random()*200, y: groundY - 30 - Math.random()*120, w:18, h:18, val:10, color:'#ffd54f' });
         } else if(r < 0.8){
           hazards.push({ x: canvas.width + 80 + Math.random()*220, y: groundY - 20, w:34, h:20, damage:1 });
@@ -161,27 +164,22 @@
       const dt = Math.min(0.05, (now - lastTime)/1000);
       lastTime = now;
 
-      // Difficulty ramp
       difficulty += dt * 0.03;
 
-      // Input
       const left = keys['ArrowLeft'] || keys['KeyA'] || mobile.left;
       const right = keys['ArrowRight'] || keys['KeyD'] || mobile.right;
       const jumpPressed = keys['Space'] || mobile.jump;
 
-      // Horizontal movement
       let targetVx = 0;
       if(left) targetVx = -player.speed;
       if(right) targetVx = player.speed;
       player.vx = targetVx;
 
-      // Jump
       if(jumpPressed && player.onGround){
         player.vy = player.jumpSpeed;
         player.onGround = false;
       }
 
-      // Physics
       player.vy += gravity * dt;
       player.x += player.vx * dt;
       player.y += player.vy * dt;
@@ -192,19 +190,14 @@
         player.onGround = true;
       }
 
-      // Scroll world left to simulate forward movement
       const worldSpeed = 140 + difficulty * 20;
       scrollX += worldSpeed * dt;
-      // Move entities left
       for(const c of collectibles) c.x -= worldSpeed * dt;
       for(const h of hazards) h.x -= worldSpeed * dt;
-      for(const e of enemies){ e.x += e.vx * dt - worldSpeed * dt; } // enemy own vx minus world scroll
+      for(const e of enemies){ e.x += e.vx * dt - worldSpeed * dt; }
 
-      // Spawn
       spawn(dt);
 
-      // Collision detection (AABB)
-      // Player collides with collectibles
       for(let i=collectibles.length-1;i>=0;i--){
         const c = collectibles[i];
         if(rectOverlap(player, c)){
@@ -216,12 +209,10 @@
           collectibles.splice(i,1);
         }
       }
-      // Hazards
       for(let i=hazards.length-1;i>=0;i--){
         const h = hazards[i];
         if(rectOverlap(player,h)){
           if(player.shield){
-            // consume shield
             player.shield = false;
           } else {
             lives -= 1;
@@ -231,7 +222,6 @@
           updateHUD();
         } else if(h.x + h.w < -40) hazards.splice(i,1);
       }
-      // Enemies
       for(let i=enemies.length-1;i>=0;i--){
         const e = enemies[i];
         if(rectOverlap(player,e)){
@@ -247,26 +237,21 @@
         } else if(e.x + e.w < -40) enemies.splice(i,1);
       }
 
-      // Score over time
       score += Math.round(10 * dt * difficulty);
       updateHUD();
 
-      // Render
       draw();
 
-      // Continue
       requestAnimationFrame(loop);
     }
 
     function draw(){
       ctx.clearRect(0,0,canvas.width,canvas.height);
 
-      // Sky gradient
       const g = ctx.createLinearGradient(0,0,0,canvas.height);
       g.addColorStop(0,"#9be4ff"); g.addColorStop(1,"#4fa1e6");
       ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width,canvas.height);
 
-      // Background parallax hills
       ctx.fillStyle = '#1b5e20'; ctx.fillRect(0, groundY+24, canvas.width, canvas.height-groundY-24);
       ctx.fillStyle = '#2e7d32';
       for(let i=0;i<5;i++){
@@ -276,39 +261,32 @@
         ctx.fill();
       }
 
-      // Ground
       ctx.fillStyle = '#6b4f2b'; ctx.fillRect(0, groundY, canvas.width, 80);
 
-      // Draw player (simple toon)
       ctx.fillStyle = player.color;
       ctx.fillRect(player.x, player.y, player.w, player.h);
-      // eyes
       ctx.fillStyle = '#222'; ctx.fillRect(player.x+8, player.y+12, 6, 6); ctx.fillRect(player.x+26, player.y+12, 6,6);
       if(player.shield){
         ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 3;
         ctx.strokeRect(player.x-6, player.y-6, player.w+12, player.h+12);
       }
 
-      // Collectibles
       for(const c of collectibles){
         ctx.fillStyle = c.color;
         ctx.beginPath(); ctx.ellipse(c.x, c.y, c.w/2, c.h/2,0,0,Math.PI*2); ctx.fill();
         ctx.fillStyle = '#a36d00'; ctx.fillRect(c.x-3, c.y-3, 6,6);
       }
 
-      // Hazards
       for(const h of hazards){
         ctx.fillStyle = '#bf360c'; ctx.fillRect(h.x, h.y, h.w, h.h);
         ctx.fillStyle = '#fff'; ctx.fillText('!', h.x + h.w/2 - 3, h.y + 14);
       }
 
-      // Enemies
       for(const e of enemies){
         ctx.fillStyle = '#8e24aa'; ctx.fillRect(e.x, e.y, e.w, e.h);
         ctx.fillStyle = '#fff'; ctx.fillRect(e.x+8, e.y+12,6,6);
       }
 
-      // HUD overlay small
       ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(8,8,160,40);
       ctx.fillStyle = '#fff'; ctx.font = '16px Arial'; ctx.fillText(`Score: ${score}`, 14,32);
     }
@@ -322,104 +300,69 @@
       paused = false;
       updateHUD();
       const msg = victory ? `Victory! Score: ${score}` : `Defeat! Score: ${score}`;
-      // save to local leaderboard cache automatically for preview
-      addToLocalLeaderboard({ playerName: lastPlayerName||'Guest', score:score, coins: coins, date: (new Date()).toISOString() });
-      alert(msg + '\nScore saved to preview leaderboard.');
-      renderLeaderboard();
+      saveScoreToPlatform(lastPlayerName, score);
+      alert(msg + '\nScore saved to platform leaderboard.');
+      requestGameData();
     }
 
-    // ---------- Simple local leaderboard for preview ----------
-    const lastPlayerNameKey = 'treasure_dash_preview_player';
-    let lastPlayerName = localStorage.getItem(lastPlayerNameKey) || 'Player';
-
-    function addToLocalLeaderboard(entry){
-      leaderboard.push(entry);
-      leaderboard.sort((a,b)=>b.score - a.score);
-      leaderboard = leaderboard.slice(0,10);
-      localStorage.setItem('treasure_dash_preview_leaderboard', JSON.stringify(leaderboard));
-      localStorage.setItem(lastPlayerNameKey, entry.playerName || 'Player');
-      // Also attempt to save via Applaa postMessage if parent listens
+    function saveScoreToPlatform(playerName, score){
       try {
-        window.parent.postMessage({ type: 'applaa-game-save-score', gameId: GAME_ID, playerName: entry.playerName, score: entry.score }, '*');
+        window.parent.postMessage({ type: 'applaa-game-save-score', gameId: GAME_ID, playerName: playerName, score: score }, '*');
       } catch(e){}
     }
 
-    function renderLeaderboard(){
-      leaderList.innerHTML = '';
-      const data = leaderboard.length ? leaderboard : JSON.parse(localStorage.getItem('treasure_dash_preview_leaderboard')||'[]');
-      for(let i=0;i<Math.min(5,data.length);i++){
-        const row = data[i];
-        const li = document.createElement('li');
-        li.textContent = `${row.playerName} — ${row.score}`;
-        leaderList.appendChild(li);
-      }
-    }
-
-    // ---------- Save score prompt (asks for player name) ----------
-    function promptAndSaveScore(){
-      const name = prompt('Enter player name to save score (preview):', lastPlayerName || 'Player');
-      if(!name) return;
-      lastPlayerName = name;
-      localStorage.setItem(lastPlayerNameKey, name);
-      // Save local leaderboard and postMessage
-      addToLocalLeaderboard({ playerName: name, score: score, coins: coins, date: (new Date()).toISOString() });
-      alert('Score saved (preview). If running inside Applaa, the platform will also receive the save request.');
-      renderLeaderboard();
-    }
-
-    // ---------- Applaa postMessage handling ----------
-    const GAME_ID = 'treasure-dash-001';
-    // Request loaded data on start
     function requestGameData(){
       try {
         window.parent.postMessage({ type: 'applaa-game-load-data', gameId: GAME_ID }, '*');
       } catch(e){}
     }
 
-    // Listen for parent messages (Applaa platform)
     window.addEventListener('message', (ev) => {
       if(!ev.data || !ev.data.type) return;
       const t = ev.data.type;
       if(t === 'applaa-game-data-loaded'){
         const data = ev.data.data;
-        if(data){
-          // Merge leaderboard if sent
-          if(Array.isArray(data.scores)){
-            // Expect scores = [{playerName, score, timestamp}, ...]
-            leaderboard = data.scores.map(s=>({ playerName: s.playerName, score: s.score, date: s.timestamp || s.date }));
-            leaderboard.sort((a,b)=>b.score - a.score);
-            leaderboard = leaderboard.slice(0,20);
-            renderLeaderboard();
-          }
-          if(data.lastPlayerName) { lastPlayerName = data.lastPlayerName; localStorage.setItem(lastPlayerNameKey, lastPlayerName); }
+        if(data && Array.isArray(data.scores)){
+          leaderboard = data.scores.map(s=>({ playerName: s.playerName, score: s.score }));
+          leaderboard.sort((a,b)=>b.score - a.score);
+          leaderboard = leaderboard.slice(0,20);
+          renderLeaderboard();
+          if(data.lastPlayerName) lastPlayerName = data.lastPlayerName;
         }
       }
       if(t === 'applaa-game-score-saved' || t === 'applaa-game-data-saved'){
-        // Could update UI/notify user
-        console.log('Applaa saved:', ev.data);
+        // Optionally notify user or refresh leaderboard
+        requestGameData();
       }
     });
 
-    // On load request platform data
+    function renderLeaderboard(){
+      leaderList.innerHTML = '';
+      for(let i=0;i<Math.min(5,leaderboard.length);i++){
+        const row = leaderboard[i];
+        const li = document.createElement('li');
+        li.textContent = `${row.playerName} — ${row.score}`;
+        leaderList.appendChild(li);
+      }
+    }
+
     window.addEventListener('load', () => {
-      // Try to load platform data
       requestGameData();
-      // Load preview leaderboard cache
-      const cached = JSON.parse(localStorage.getItem('treasure_dash_preview_leaderboard')||'[]');
-      if(cached.length) leaderboard = cached;
-      renderLeaderboard();
+      draw();
     });
 
-    // Expose a keyboard shortcut to simulate save via postMessage quickly
     window.addEventListener('keydown',(e)=>{
       if(e.ctrlKey && e.key === 's') { e.preventDefault(); promptAndSaveScore(); }
     });
 
-    // Initialize draw once
-    draw();
-
-    // For the simplified preview we don't implement full level mode vs endless separately.
-    // This preview demonstrates core mechanics and storage messaging.
+    function promptAndSaveScore(){
+      const name = prompt('Enter player name to save score:', lastPlayerName);
+      if(!name) return;
+      lastPlayerName = name.trim() || "Player";
+      saveScoreToPlatform(lastPlayerName, score);
+      alert('Score saved to platform leaderboard.');
+      requestGameData();
+    }
   })();
   </script>
 </body>

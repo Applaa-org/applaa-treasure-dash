@@ -10,10 +10,9 @@ func _ready():
 func _on_start_pressed():
     var name = $VBoxContainer/NameLineEdit.text.strip_edges()
     if name == "":
-        name = "Guest"
+        name = "Player"
     global.player_name = name
-    global.update_last_played()
-    global.save_custom_data()
+    global.save_score() # Save initial score 0 with player name
     get_tree().change_scene_to_file("res://scenes/Main.tscn")
 
 func _on_close_pressed():
