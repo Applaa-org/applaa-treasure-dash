@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Treasure Dash — Preview</title>
+  <style>
+    html,body { height:100%; margin:0; background:#0b1220; font-family:Arial,Helvetica,sans-serif; -webkit-user-select:none; -ms-user-select:none; user-select:none; }
+    #game-wrap { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; }
+    canvas { background: linear-gradient(#66c2ff,#2b6fb3); border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,0.5); }
+    #hud { color:#fff; width:800px; max-width:92vw; display:flex; justify-content:space-between; margin:10px 0; align-items:center; }
+    #controls { display:flex; gap:8px; align-items:center; }
+    button { padding:8px 12px; border-radius:8px; border:none; background:#ffd54f; color:#0b1220; font-weight:700; cursor:pointer; box-shadow:0 4px rgba(0,0,0,0.15); }
+    #leaderboard { margin-top:12px; color:#fff; width:800px; max-width:92vw; }
+    .small { font-size:13px; color:#f0f4ffcc; }
+    #mobile-controls { display:none; gap:10px; margin-top:8px; }
+    .touch-btn { width:68px; height:68px; border-radius:12px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.08); color:#fff; font-weight:700; font-size:18px; display:flex; align-items:center; justify-content:center; }
+    @media (max-width:720px){ #mobile-controls { display:flex; } }
+  </style>
+</head>
+<body>
+  <div id="game-wrap">
+    <div id="hud">
+      <div>
+        <div style="font-size:20px;font-weight:800;color:#fff">Treasure Dash (Preview)</div>
+        <div class="small">Move: ← → or A/D. Jump: Space / Tap. Collect coins and avoid hazards.</div>
+      </div>
+      <div id="controls">
+        <div id="score">Score: 0</div>
+        <button id="btn-start">Start</button>
+        <button id="btn-pause">Pause</button>
+        <button id="btn-save">Save Score</button>
+        <button id="btn-quit">Close</button>
+      </div>
+    </div>
+
+    <canvas id="game" width="800" height="450"></canvas>
+
+    <div id="mobile-controls">
+      <div class="touch-btn" id="left">◀</div>
+      <div class="touch-btn" id="jump">▲</div>
+      <div class="touch-btn" id="right">▶</div>
+      <div class="touch-btn" id="use">★</div>
+    </div>
+
+    <div id="leaderboard">
+      <h3 style="margin:6px 0 4px 0;color:#fff">Leaderboard (Top 5)</h3>
+      <ol id="leader-list" style="padding-left:20px;color:#fff"></ol>
+    </div>
+  </div>
+
+  <script>
+  // Simplified Treasure Dash preview
+  (function(){
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreLabel = document.getElementById('score');
+    const btnStart = document.getElementById('btn-start');
+    const btnPause = document.getElementById('btn-pause');
+    const btnSave = document.getElementById('btn-save');
+    const btnQuit = document.getElementById('btn-quit');
+    const leaderList = document.getElementById('leader-list');
+
+    const mobile = { left:false, right:false, jump:false, use:false };
+    document.getElementById('left').addEventListener('touchstart',e=>{e.preventDefault(); mobile.left=true});
+    document.getElementById('left').addEventListener('touchend',e=>{e.preventDefault(); mobile.left=false});
+    document.getElementById('right').addEventListener('touchstart',e=>{e.preventDefault(); mobile.right=true});
+    document.getElementById('right').addEventListener('touchend',e=>{e.preventDefault(); mobile.right=false});
+    document.getElementById('jump').addEventListener('touchstart',e=>{e.preventDefault(); mobile.jump=true; setTimeout(()=>mobile.jump=false,150)});
+    document.getElementById('use').addEventListener('touchstart',e=>{e.preventDefault(); mobile.use=true; setTimeout(()=>mobile.use=false,150)});
+
+    // Game state
+    let running = false;
+    let paused = false;
+    let score = 0;
+    let coins = 0;
+    let lives = 3;
+    const gravity = 1500;
+    const groundY = canvas.height - 80;
+    let lastTime = 0;
+
+    // Player
+    const player = {
+      x: 120, y: groundY - 48, w: 40, h: 48,
+      vx: 0, vy: 0, speed: 260, jumpSpeed: -520, onGround: true,
+      color: '#ffdd57', shield: false
+    };
+
+    // Simple arrays for collectibles and hazards
+    let collectibles = [];
+    let hazards = [];
+    let enemies = [];
+    let scrollX = 0;
+    let spawnTimer = 0;
+    let difficulty = 1;
+
+    // Leaderboard local cache (for preview); real storage via postMessage
+    let leaderboard = [];
+
+    // Input
+    const keys = {};
+    window.addEventListener('keydown', e => { keys[e.code]=true; if(e.code==='Escape') togglePause(); });
+    window.addEventListener('keyup', e => { keys[e.code]=false; });
+
+    // Buttons
+    btnStart.addEventListener('click', startGame);
+    btnPause.addEventListener('click', togglePause);
+    btnSave.addEventListener('click', () => { promptAndSaveScore(); });
+    btnQuit.addEventListener('click', () => { // post a close message for container and then window.close()
+      try { window.parent.postMessage({ type: 'applaa-game-quit' }, '*'); } catch(e){}
+      // can't close from browser in most contexts; give feedback
+      alert('Close requested (in desktop game this will quit).');
+    });
+
+    function startGame(){
+      resetGame();
+      running = true;
+      paused = false;
+      lastTime = performance.now();
+      requestAnimationFrame(loop);
+    }
+
+    function resetGame(){
+      score = 0; coins = 0; lives = 3; difficulty = 1;
+      player.x = 120; player.y = groundY - player.h; player.vx = 0; player.vy = 0; player.onGround = true;
+      collectibles = []; hazards = []; enemies = []; scrollX = 0; spawnTimer = 0;
+      updateHUD();
+    }
+
+    function togglePause(){
+      if(!running) return;
+      paused = !paused;
+      btnPause.textContent = paused ? 'Resume' : 'Pause';
+      if(!paused) { lastTime = performance.now(); requestAnimationFrame(loop); }
+    }
+
+    function updateHUD(){ scoreLabel.textContent = `Score: ${score}  Coins: ${coins}  Lives: ${lives}`; }
+
+    // Spawn logic: coins, hazards, enemies
+    function spawn(dt){
+      spawnTimer += dt;
+      // spawn frequency increases with difficulty
+      const spawnPeriod = Math.max(0.6, 1.8 - difficulty * 0.12);
+      if(spawnTimer > spawnPeriod){
+        spawnTimer = 0;
+        // randomize spawn type
+        const r = Math.random();
+        if(r < 0.55){
+          // coin
+          collectibles.push({ x: canvas.width + 80 + Math.random()*200, y: groundY - 30 - Math.random()*120, w:18, h:18, val:10, color:'#ffd54f' });
+        } else if(r < 0.8){
+          hazards.push({ x: canvas.width + 80 + Math.random()*220, y: groundY - 20, w:34, h:20, damage:1 });
+        } else {
+          enemies.push({ x: canvas.width + 90 + Math.random()*240, y: groundY - 48, w:40, h:48, vx:-80 - difficulty*20 });
+        }
+      }
+    }
+
+    function loop(now){
+      if(!running || paused) return;
+      const dt = Math.min(0.05, (now - lastTime)/1000);
+      lastTime = now;
+
+      // Difficulty ramp
+      difficulty += dt * 0.03;
+
+      // Input
+      const left = keys['ArrowLeft'] || keys['KeyA'] || mobile.left;
+      const right = keys['ArrowRight'] || keys['KeyD'] || mobile.right;
+      const jumpPressed = keys['Space'] || mobile.jump;
+
+      // Horizontal movement
+      let targetVx = 0;
+      if(left) targetVx = -player.speed;
+      if(right) targetVx = player.speed;
+      player.vx = targetVx;
+
+      // Jump
+      if(jumpPressed && player.onGround){
+        player.vy = player.jumpSpeed;
+        player.onGround = false;
+      }
+
+      // Physics
+      player.vy += gravity * dt;
+      player.x += player.vx * dt;
+      player.y += player.vy * dt;
+
+      if(player.y + player.h >= groundY){
+        player.y = groundY - player.h;
+        player.vy = 0;
+        player.onGround = true;
+      }
+
+      // Scroll world left to simulate forward movement
+      const worldSpeed = 140 + difficulty * 20;
+      scrollX += worldSpeed * dt;
+      // Move entities left
+      for(const c of collectibles) c.x -= worldSpeed * dt;
+      for(const h of hazards) h.x -= worldSpeed * dt;
+      for(const e of enemies){ e.x += e.vx * dt - worldSpeed * dt; } // enemy own vx minus world scroll
+
+      // Spawn
+      spawn(dt);
+
+      // Collision detection (AABB)
+      // Player collides with collectibles
+      for(let i=collectibles.length-1;i>=0;i--){
+        const c = collectibles[i];
+        if(rectOverlap(player, c)){
+          score += c.val;
+          coins += 1;
+          updateHUD();
+          collectibles.splice(i,1);
+        } else if(c.x + c.w < -40) {
+          collectibles.splice(i,1);
+        }
+      }
+      // Hazards
+      for(let i=hazards.length-1;i>=0;i--){
+        const h = hazards[i];
+        if(rectOverlap(player,h)){
+          if(player.shield){
+            // consume shield
+            player.shield = false;
+          } else {
+            lives -= 1;
+            if(lives <= 0) { endGame(false); return; }
+          }
+          hazards.splice(i,1);
+          updateHUD();
+        } else if(h.x + h.w < -40) hazards.splice(i,1);
+      }
+      // Enemies
+      for(let i=enemies.length-1;i>=0;i--){
+        const e = enemies[i];
+        if(rectOverlap(player,e)){
+          if(player.shield){
+            player.shield = false;
+            enemies.splice(i,1);
+          } else {
+            lives -=1;
+            if(lives <= 0){ endGame(false); return; }
+            enemies.splice(i,1);
+            updateHUD();
+          }
+        } else if(e.x + e.w < -40) enemies.splice(i,1);
+      }
+
+      // Score over time
+      score += Math.round(10 * dt * difficulty);
+      updateHUD();
+
+      // Render
+      draw();
+
+      // Continue
+      requestAnimationFrame(loop);
+    }
+
+    function draw(){
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+
+      // Sky gradient
+      const g = ctx.createLinearGradient(0,0,0,canvas.height);
+      g.addColorStop(0,"#9be4ff"); g.addColorStop(1,"#4fa1e6");
+      ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width,canvas.height);
+
+      // Background parallax hills
+      ctx.fillStyle = '#1b5e20'; ctx.fillRect(0, groundY+24, canvas.width, canvas.height-groundY-24);
+      ctx.fillStyle = '#2e7d32';
+      for(let i=0;i<5;i++){
+        const hx = ((i*300)- (scrollX*0.2 % 300));
+        ctx.beginPath();
+        ctx.ellipse(hx+100, groundY+10, 180, 60, 0, 0, Math.PI*2);
+        ctx.fill();
+      }
+
+      // Ground
+      ctx.fillStyle = '#6b4f2b'; ctx.fillRect(0, groundY, canvas.width, 80);
+
+      // Draw player (simple toon)
+      ctx.fillStyle = player.color;
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+      // eyes
+      ctx.fillStyle = '#222'; ctx.fillRect(player.x+8, player.y+12, 6, 6); ctx.fillRect(player.x+26, player.y+12, 6,6);
+      if(player.shield){
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 3;
+        ctx.strokeRect(player.x-6, player.y-6, player.w+12, player.h+12);
+      }
+
+      // Collectibles
+      for(const c of collectibles){
+        ctx.fillStyle = c.color;
+        ctx.beginPath(); ctx.ellipse(c.x, c.y, c.w/2, c.h/2,0,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#a36d00'; ctx.fillRect(c.x-3, c.y-3, 6,6);
+      }
+
+      // Hazards
+      for(const h of hazards){
+        ctx.fillStyle = '#bf360c'; ctx.fillRect(h.x, h.y, h.w, h.h);
+        ctx.fillStyle = '#fff'; ctx.fillText('!', h.x + h.w/2 - 3, h.y + 14);
+      }
+
+      // Enemies
+      for(const e of enemies){
+        ctx.fillStyle = '#8e24aa'; ctx.fillRect(e.x, e.y, e.w, e.h);
+        ctx.fillStyle = '#fff'; ctx.fillRect(e.x+8, e.y+12,6,6);
+      }
+
+      // HUD overlay small
+      ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(8,8,160,40);
+      ctx.fillStyle = '#fff'; ctx.font = '16px Arial'; ctx.fillText(`Score: ${score}`, 14,32);
+    }
+
+    function rectOverlap(a,b){
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + (b.h||0) && a.y + a.h > b.y;
+    }
+
+    function endGame(victory){
+      running = false;
+      paused = false;
+      updateHUD();
+      const msg = victory ? `Victory! Score: ${score}` : `Defeat! Score: ${score}`;
+      // save to local leaderboard cache automatically for preview
+      addToLocalLeaderboard({ playerName: lastPlayerName||'Guest', score:score, coins: coins, date: (new Date()).toISOString() });
+      alert(msg + '\nScore saved to preview leaderboard.');
+      renderLeaderboard();
+    }
+
+    // ---------- Simple local leaderboard for preview ----------
+    const lastPlayerNameKey = 'treasure_dash_preview_player';
+    let lastPlayerName = localStorage.getItem(lastPlayerNameKey) || 'Player';
+
+    function addToLocalLeaderboard(entry){
+      leaderboard.push(entry);
+      leaderboard.sort((a,b)=>b.score - a.score);
+      leaderboard = leaderboard.slice(0,10);
+      localStorage.setItem('treasure_dash_preview_leaderboard', JSON.stringify(leaderboard));
+      localStorage.setItem(lastPlayerNameKey, entry.playerName || 'Player');
+      // Also attempt to save via Applaa postMessage if parent listens
+      try {
+        window.parent.postMessage({ type: 'applaa-game-save-score', gameId: GAME_ID, playerName: entry.playerName, score: entry.score }, '*');
+      } catch(e){}
+    }
+
+    function renderLeaderboard(){
+      leaderList.innerHTML = '';
+      const data = leaderboard.length ? leaderboard : JSON.parse(localStorage.getItem('treasure_dash_preview_leaderboard')||'[]');
+      for(let i=0;i<Math.min(5,data.length);i++){
+        const row = data[i];
+        const li = document.createElement('li');
+        li.textContent = `${row.playerName} — ${row.score}`;
+        leaderList.appendChild(li);
+      }
+    }
+
+    // ---------- Save score prompt (asks for player name) ----------
+    function promptAndSaveScore(){
+      const name = prompt('Enter player name to save score (preview):', lastPlayerName || 'Player');
+      if(!name) return;
+      lastPlayerName = name;
+      localStorage.setItem(lastPlayerNameKey, name);
+      // Save local leaderboard and postMessage
+      addToLocalLeaderboard({ playerName: name, score: score, coins: coins, date: (new Date()).toISOString() });
+      alert('Score saved (preview). If running inside Applaa, the platform will also receive the save request.');
+      renderLeaderboard();
+    }
+
+    // ---------- Applaa postMessage handling ----------
+    const GAME_ID = 'treasure-dash-001';
+    // Request loaded data on start
+    function requestGameData(){
+      try {
+        window.parent.postMessage({ type: 'applaa-game-load-data', gameId: GAME_ID }, '*');
+      } catch(e){}
+    }
+
+    // Listen for parent messages (Applaa platform)
+    window.addEventListener('message', (ev) => {
+      if(!ev.data || !ev.data.type) return;
+      const t = ev.data.type;
+      if(t === 'applaa-game-data-loaded'){
+        const data = ev.data.data;
+        if(data){
+          // Merge leaderboard if sent
+          if(Array.isArray(data.scores)){
+            // Expect scores = [{playerName, score, timestamp}, ...]
+            leaderboard = data.scores.map(s=>({ playerName: s.playerName, score: s.score, date: s.timestamp || s.date }));
+            leaderboard.sort((a,b)=>b.score - a.score);
+            leaderboard = leaderboard.slice(0,20);
+            renderLeaderboard();
+          }
+          if(data.lastPlayerName) { lastPlayerName = data.lastPlayerName; localStorage.setItem(lastPlayerNameKey, lastPlayerName); }
+        }
+      }
+      if(t === 'applaa-game-score-saved' || t === 'applaa-game-data-saved'){
+        // Could update UI/notify user
+        console.log('Applaa saved:', ev.data);
+      }
+    });
+
+    // On load request platform data
+    window.addEventListener('load', () => {
+      // Try to load platform data
+      requestGameData();
+      // Load preview leaderboard cache
+      const cached = JSON.parse(localStorage.getItem('treasure_dash_preview_leaderboard')||'[]');
+      if(cached.length) leaderboard = cached;
+      renderLeaderboard();
+    });
+
+    // Expose a keyboard shortcut to simulate save via postMessage quickly
+    window.addEventListener('keydown',(e)=>{
+      if(e.ctrlKey && e.key === 's') { e.preventDefault(); promptAndSaveScore(); }
+    });
+
+    // Initialize draw once
+    draw();
+
+    // For the simplified preview we don't implement full level mode vs endless separately.
+    // This preview demonstrates core mechanics and storage messaging.
+  })();
+  </script>
+</body>
+</html>
